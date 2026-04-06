@@ -74,3 +74,14 @@ class TestPaymentProcessor(unittest.TestCase):
         with pytest.raises(ValueError):
             result = self.proc.process(tx)
         self.audit.record.assert_not_called()
+
+class TestFraudAwareProcessor(unittest.TestCase):
+    def setUp(self):
+        self.detector.check.return_value = FraudCheckResult(
+        approved=False, risk_score=0.9, reason="Suspicious pattern"
+        )
+    
+    def test_high_risk_score_blocked(self):
+        risk_score = 0.76
+
+        self.detector.check
