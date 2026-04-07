@@ -142,5 +142,67 @@ class TestFraudAwareProcessor(unittest.TestCase):
 
         self.mailer.send_receipt.assert_called_once_with(7, "YIPEE", 1222)
 
+class TestStatementBuilder(unittest.TestCase):
+    def setUp(self):
+        self.repo = MagicMock()
+        self.builder = StatementBuilder(self.repo)
+
+    def test_no_transactions(self):
+        self.repo.find_by_user.return_value = []
+
+        result = self.builder.build(user_id=9)
+
+        self.assertEqual(result["count"],0)
+        self.assertEqual(result["total_charged"],0.0)
+
+    def test_success_sum(self):
+        txs = [
+            Transaction("TX1", 2, 99.99,  status="success"),
+            Transaction("TX2", 2,  0.01,  status="success"),  # tiny amount
+            Transaction("TX3", 2, 450.00, status="success"),
+        ]
+        self.repo.find_by_user.return_value = txs
+
+        result = self.builder.build(user_id=2)
+
+        self.assertEqual(result["total_charged"], 550.00)
+
+
+    def test_only_successful_transactions_sum(self):
+        txs = [
+            Transaction("TX1", 10, 100.00, status="success"),
+            Transaction("TX2", 10,  50.00, status="declined"),  # must be excluded
+            Transaction("TX3", 10, 200.00, status="success"),
+            Transaction("TX4", 10,  75.00, status="pending"),   # must be excluded
+        ]
+
+        self.repo.find_by_user.return_value = txs
+
+        result = self.builder.build(user_id=10)
+
+        self.assertEqual(result["total_charged"], 300.00)  # 100 + 200 only
+        self.assertEqual(result["count"], 4)   
+
+    def test_rounding(self):
+        txs = [
+            Transaction("TX1", 3, 10.555, status="success"),
+            Transaction("TX2", 3,  0.005, status="success"),
+        ]
+        self.repo.find_by_user.return_value = txs
+
+        result = self.builder.build(user_id=3)
+
+        self.assertEqual(result["total_charged"], 10.56)
+
+    def test_transaction_list_as_is(self):
+        txs = [Transaction("TX1", 4, 100.00, status="success")]
+        self.repo.find_by_user.return_value = txs
+
+        result = self.builder.build(user_id=4)
+
+        self.assertIs(result["transactions"], txs)
+
+
+
 
 
