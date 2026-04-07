@@ -1,6 +1,6 @@
 import pytest
 import unittest
-from unittest.mock import MagicMock, call, Mock
+from unittest.mock import MagicMock, call, Mock, patch
 from banklite import *
 
 class TestPaymentProcessor(unittest.TestCase):
@@ -201,6 +201,68 @@ class TestStatementBuilder(unittest.TestCase):
         result = self.builder.build(user_id=4)
 
         self.assertIs(result["transactions"], txs)
+
+
+class TestCheckoutServiceWithSpy(unittest.TestCase):
+    def setUp(self):
+        real_calc      = FeeCalculator()
+        self.spy_calc  = MagicMock(wraps=real_calc)   # spy wraps real object
+        self.gateway   = MagicMock()
+        self.gateway.charge.return_value = True
+        self.svc       = CheckoutService(self.spy_calc, self.gateway)
+
+    def usd_tx(self, amount=100.00):
+        return Transaction("TX-USD", 1, amount, currency="USD")
+
+    def eur_tx(self, amount=200.00):
+        return Transaction("TX-EUR", 1, amount, currency="EUR")
+
+    def test_correct_usd_fee(self):
+        receipt = self.svc.checkout(self.usd_tx(100.00))
+
+        self.assertEqual(receipt["fee"], 3.20)
+
+    def test_correct_international_fee(self):
+        receipt = self.svc.checkout(self.eur_tx(200.00))
+
+        self.assertEqual(receipt["fee"], 9.10)
+
+    def test_processing_fee_correct_args(self):
+        tx = self.usd_tx(67.00)
+        self.svc.checkout(tx)
+
+        self.spy_calc.processing_fee.assert_called_once_with(67.00, "USD")
+
+    def test_net_amount_correct_args(self):
+        tx = self.eur_tx(777.00)
+        self.svc.checkout(tx)
+
+        self.spy_calc.net_amount.assert_called_once_with(777.00, "EUR")
+
+    def test_fee_called_once_per_checkout(self):
+        self.svc.checkout(self.usd_tx(100.00))
+
+        self.assertEqual(self.spy_calc.processing_fee.call_count, 1)
+        self.assertEqual(self.spy_calc.net_amount.call_count, 1)
+
+    def test_real_return_flows_into_recipt(self):
+        receipt = self.svc.checkout(self.usd_tx(123.00))
+
+        self.assertEqual(receipt["fee"], 3.87)
+        self.assertEqual(receipt["net"], 119.13)
+
+    def test_partial_spy_observe_net_amount_only(self):
+        real_calc = FeeCalculator()
+        svc       = CheckoutService(real_calc, self.gateway)
+        tx        = self.usd_tx(500.00)
+
+        with patch.object(real_calc, "net_amount",
+                wraps=real_calc.net_amount) as spy_net:
+            receipt = svc.checkout(tx)
+
+
+
+
 
 
 
